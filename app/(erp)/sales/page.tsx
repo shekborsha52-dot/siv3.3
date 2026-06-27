@@ -56,7 +56,7 @@ export default function SalesPage() {
     const [invRes, custRes, prodRes] = await Promise.all([
       supabase.from('invoices').select('*, customer:customers(name, code, phone, address)').order('created_at', { ascending: false }),
       supabase.from('customers').select('*').eq('is_active', true).order('name'),
-      supabase.from('products').select(`*, units(id, product_id, unit_name, unit_short, conversion_factor, is_base_unit, is_sale_unit, price, cost_price, is_active, sort_order)`).eq('is_active', true).order('name'),
+      supabase.from('products').select(`*, units:product_units(id, product_id, unit_name, unit_short, conversion_factor, is_base_unit, is_sale_unit, price, cost_price, is_active, sort_order)`).eq('is_active', true).order('name'),
     ]);
     setInvoices(invRes.data || []);
     setCustomers(custRes.data || []);

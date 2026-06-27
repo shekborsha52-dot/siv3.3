@@ -68,7 +68,7 @@ export default function POSPage() {
       .from('products')
       .select(`id, name, sku, sale_price, cost_price, image_url, unit, base_unit, enable_multi_unit,
         inventory_items(id, warehouse_id, quantity_on_hand),
-        units(id, product_id, unit_name, unit_short, conversion_factor, is_base_unit, is_sale_unit, price, cost_price, is_active, sort_order)`)
+        units:product_units(id, product_id, unit_name, unit_short, conversion_factor, is_base_unit, is_sale_unit, price, cost_price, is_active, sort_order)`)
       .eq('is_active', true)
       .limit(100);
     setProducts((data || []) as ProductData[]);
