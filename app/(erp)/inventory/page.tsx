@@ -174,28 +174,37 @@ export default function InventoryPage() {
         if (rows.length === 0) { toast({ title: 'Empty file', description: 'No rows found in the spreadsheet', variant: 'destructive' }); return; }
 
         let imported = 0, skipped = 0;
+        const sectionHeaders = ['suzan metal', 'rosa metal', 'astra metal', 'products name', 'sanitary ware', 'metal'];
+
         for (const row of rows) {
-          const name = row['Name'] || row['name'];
-          const sku = row['SKU'] || row['sku'];
+          const name = row['Name'] || row['name'] || row['__EMPTY'] || row['__EMPTY_2'];
+          const sku = row['SKU'] || row['sku'] || row['__EMPTY_1'] || row['__EMPTY_3'];
+
           if (!name || !sku) { skipped++; continue; }
+
+          const nameStr = String(name).trim();
+          const skuStr = String(sku).trim();
+
+          if (sectionHeaders.some(h => nameStr.toLowerCase() === h || skuStr.toLowerCase().includes(h.toLowerCase()))) { skipped++; continue; }
+          if (!/^[A-Za-z0-9]/.test(skuStr)) { skipped++; continue; }
 
           const catName = row['Category'] || row['category'];
           const brandName = row['Brand'] || row['brand'];
 
           let category_id = null;
           if (catName) {
-            const cat = categories.find(c => c.name.toLowerCase() === catName.toLowerCase());
+            const cat = categories.find(c => c.name.toLowerCase() === String(catName).toLowerCase());
             category_id = cat?.id || null;
           }
           let brand_id = null;
           if (brandName) {
-            const br = brands.find(b => b.name.toLowerCase() === brandName.toLowerCase());
+            const br = brands.find(b => b.name.toLowerCase() === String(brandName).toLowerCase());
             brand_id = br?.id || null;
           }
 
-          const { error } = await supabase.from('products').upsert({
-            name: String(name),
-            sku: String(sku),
+          const { data: productData, error } = await supabase.from('products').upsert({
+            name: nameStr,
+            sku: skuStr,
             unit: String(row['Unit'] || row['unit'] || 'pcs'),
             cost_price: Number(row['Cost Price'] || row['cost_price'] || 0),
             sale_price: Number(row['Sale Price'] || row['sale_price'] || 0),
@@ -204,9 +213,22 @@ export default function InventoryPage() {
             category_id,
             brand_id,
             is_active: true,
-          }, { onConflict: 'sku' });
+          }, { onConflict: 'tenant_id,sku' }).select();
 
-          if (!error) imported++; else skipped++;
+          if (!error && productData && productData[0]) {
+            imported++;
+            const currentStock = Number(row['Current Stock'] || row['current_stock'] || 0);
+            if (currentStock > 0) {
+              await supabase.from('inventory_items').upsert({
+                product_id: productData[0].id,
+                warehouse_id: '33000000-0000-0000-0000-000000000001',
+                quantity_on_hand: currentStock,
+                quantity_reserved: 0,
+              }, { onConflict: 'product_id,warehouse_id' });
+            }
+          } else {
+            skipped++;
+          }
         }
         toast({ title: 'Import Complete', description: `${imported} products imported, ${skipped} skipped` });
         loadData();
