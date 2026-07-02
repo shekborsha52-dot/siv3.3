@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { toast } from '@/hooks/use-toast';
-import { ArrowLeft, Phone, Mail, MapPin, Building, CreditCard, Calendar, ShoppingBag, DollarSign, Star, CreditCard as Edit, Eye, Package, FileText, Building2 } from 'lucide-react';
+import { ArrowLeft, Phone, Mail, MapPin, Building2, CreditCard, Calendar, ShoppingBag, DollarSign, Star, Edit, Eye, Package, FileText } from 'lucide-react';
 import type { Supplier, PurchaseOrder } from '@/lib/types';
 
 interface ManualPayable {
@@ -176,7 +176,7 @@ export default function SupplierDetailPage() {
               )}
               {supplier.company_name && (
                 <div className="flex items-center gap-3 text-sm">
-                  <Building className="w-4 h-4 text-muted-foreground" />
+                  <Building2 className="w-4 h-4 text-muted-foreground" />
                   <span className="text-foreground">{supplier.company_name}</span>
                 </div>
               )}
