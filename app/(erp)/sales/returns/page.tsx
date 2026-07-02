@@ -60,6 +60,15 @@ interface SalesReturnItem {
   reason: string;
 }
 
+interface PaymentMethod {
+  id: string;
+  name: string;
+  code: string;
+  is_cash: boolean;
+  is_bank: boolean;
+  account_id: string | null;
+}
+
 export default function SalesReturnsPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [returns, setReturns] = useState<SalesReturn[]>([]);
@@ -289,11 +298,31 @@ function ReturnModal({ invoices, onClose, onSaved }: {
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [items, setItems] = useState<InvoiceItem[]>([]);
   const [returnItems, setReturnItems] = useState<Record<string, { qty: number; reason: string }>>({});
-  const [refundMethod, setRefundMethod] = useState<'cash' | 'bank_transfer' | 'store_credit'>('store_credit');
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
-  const [createdJournalId, setCreatedJournalId] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Load payment methods from database
+    supabase
+      .from('payment_methods')
+      .select('id, name, code, is_cash, is_bank, account_id')
+      .eq('is_active', true)
+      .order('sort_order')
+      .then(({ data }) => {
+        // Add "Store Credit" as a special option
+        const methods = [
+          { id: 'store_credit', name: 'Store Credit', code: 'store_credit', is_cash: false, is_bank: false, account_id: null },
+          ...(data || [])
+        ];
+        setPaymentMethods(methods);
+        if (methods.length > 0) {
+          setSelectedPaymentMethod(methods[0].id);
+        }
+      });
+  }, []);
 
   async function selectInvoice(invoice: Invoice) {
     setSelectedInvoice(invoice);
@@ -330,6 +359,11 @@ function ReturnModal({ invoices, onClose, onSaved }: {
       return;
     }
 
+    if (!selectedPaymentMethod) {
+      setError('Please select a refund method');
+      return;
+    }
+
     setSaving(true);
     setError('');
 
@@ -346,22 +380,31 @@ function ReturnModal({ invoices, onClose, onSaved }: {
         .maybeSingle();
       const warehouseId = warehouse?.id || '11000000-0000-0000-0000-000000000001';
 
-      // Get current user
+      // Get current user (if authenticated)
       const { data: { user } } = await supabase.auth.getUser();
-      const createdBy = user?.id;
+      const createdBy = user?.id || null;
+
+      // Get selected payment method details
+      const selectedMethod = paymentMethods.find(m => m.id === selectedPaymentMethod);
+      const isStoreCredit = selectedPaymentMethod === 'store_credit';
 
       // Get required accounts
+      const accountCodes = ['4050', '1100', '1200', '5000'];
+      if (!isStoreCredit && selectedMethod?.account_id) {
+        // We'll use the payment method's account for cash/bank refunds
+      } else if (isStoreCredit) {
+        accountCodes.push('2200'); // Customer Refund Payable
+      }
+
       const { data: accounts } = await supabase
         .from('accounts')
         .select('id, code')
-        .in('code', ['4050', '1100', '1001', '1010', '2200', '1200', '5000']);
+        .in('code', accountCodes);
 
       const getAccountId = (code: string) => accounts?.find(a => a.code === code)?.id;
 
       const salesReturnsAccountId = getAccountId('4050');
       const accountsReceivableId = getAccountId('1100');
-      const cashAccountId = getAccountId('1001'); // Cash in Hand
-      const bankAccountId = getAccountId('1010'); // Bank Account
       const customerRefundPayableId = getAccountId('2200');
       const inventoryAccountId = getAccountId('1200');
       const cogsAccountId = getAccountId('5000');
@@ -374,12 +417,12 @@ function ReturnModal({ invoices, onClose, onSaved }: {
 
       // Determine credit account based on refund method
       let creditAccountId: string;
-      if (refundMethod === 'cash') {
-        creditAccountId = cashAccountId!;
-      } else if (refundMethod === 'bank_transfer') {
-        creditAccountId = bankAccountId!;
-      } else {
+      if (isStoreCredit) {
         creditAccountId = customerRefundPayableId || accountsReceivableId;
+      } else if (selectedMethod?.account_id) {
+        creditAccountId = selectedMethod.account_id;
+      } else {
+        creditAccountId = accountsReceivableId;
       }
 
       // Create journal entry
@@ -398,7 +441,7 @@ function ReturnModal({ invoices, onClose, onSaved }: {
       // Line 2: Credit Accounts Receivable or Cash/Bank/Refund Payable
       journalLines.push({
         account_id: creditAccountId,
-        description: refundMethod === 'store_credit' ? 'Customer Store Credit' : `Refund via ${refundMethod}`,
+        description: isStoreCredit ? 'Customer Store Credit' : `Refund via ${selectedMethod?.name || 'Payment'}`,
         debit: 0,
         credit: totalRefundAmount,
         sort_order: 2
@@ -424,19 +467,23 @@ function ReturnModal({ invoices, onClose, onSaved }: {
         });
       }
 
-      // Insert journal entry
+      // Insert journal entry (without created_by if no user)
+      const journalEntryData: any = {
+        entry_number: journalEntryNumber,
+        entry_date: new Date().toISOString().split('T')[0],
+        description: `Sales Return ${returnNumber} - Invoice ${selectedInvoice.invoice_number}`,
+        reference_type: 'sales_return',
+        total_debit: totalRefundAmount + totalCOGS,
+        total_credit: totalRefundAmount + totalCOGS,
+        is_posted: true
+      };
+      if (createdBy) {
+        journalEntryData.created_by = createdBy;
+      }
+
       const { data: journalEntry, error: journalError } = await supabase
         .from('journal_entries')
-        .insert({
-          entry_number: journalEntryNumber,
-          entry_date: new Date().toISOString().split('T')[0],
-          description: `Sales Return ${returnNumber} - Invoice ${selectedInvoice.invoice_number}`,
-          reference_type: 'sales_return',
-          total_debit: totalRefundAmount + totalCOGS,
-          total_credit: totalRefundAmount + totalCOGS,
-          is_posted: true,
-          created_by: createdBy
-        })
+        .insert(journalEntryData)
         .select('id')
         .single();
 
@@ -450,23 +497,30 @@ function ReturnModal({ invoices, onClose, onSaved }: {
         }))
       );
 
-      // Create payment record for the refund
-      const paymentNumber = `PAY-${Date.now().toString().slice(-6)}`;
-      const { data: payment, error: paymentError } = await supabase
-        .from('payments')
-        .insert({
-          payment_number: paymentNumber,
-          payment_type: 'refund',
-          reference_type: 'sales_return',
-          reference_id: journalEntry.id,
-          customer_id: selectedInvoice.customer_id,
-          amount: totalRefundAmount,
-          payment_method: refundMethod === 'store_credit' ? 'store_credit' : refundMethod,
-          payment_date: new Date().toISOString().split('T')[0],
-          notes: `Refund for sales return ${returnNumber}`
-        })
-        .select('id')
-        .maybeSingle();
+      // Create payment record for the refund (only for non-store-credit refunds)
+      let paymentId = null;
+      if (!isStoreCredit) {
+        const paymentNumber = `PAY-${Date.now().toString().slice(-6)}`;
+        const { data: payment, error: paymentError } = await supabase
+          .from('payments')
+          .insert({
+            payment_number: paymentNumber,
+            payment_type: 'refund',
+            reference_type: 'sales_return',
+            reference_id: journalEntry.id,
+            customer_id: selectedInvoice.customer_id,
+            amount: totalRefundAmount,
+            payment_method: selectedMethod?.code || 'cash',
+            payment_date: new Date().toISOString().split('T')[0],
+            notes: `Refund for sales return ${returnNumber}`
+          })
+          .select('id')
+          .maybeSingle();
+
+        if (!paymentError && payment) {
+          paymentId = payment.id;
+        }
+      }
 
       // Create sales_return record
       const { data: salesReturn, error: returnError } = await supabase
@@ -477,10 +531,10 @@ function ReturnModal({ invoices, onClose, onSaved }: {
           customer_id: selectedInvoice.customer_id,
           return_date: new Date().toISOString().split('T')[0],
           total_refund_amount: totalRefundAmount,
-          refund_method: refundMethod,
+          refund_method: selectedMethod?.code || 'store_credit',
           status: 'completed',
           journal_entry_id: journalEntry.id,
-          payment_id: payment?.id,
+          payment_id: paymentId,
           created_by: createdBy
         })
         .select('id')
@@ -555,7 +609,7 @@ function ReturnModal({ invoices, onClose, onSaved }: {
       }).eq('id', selectedInvoice.id);
 
       // Update customer outstanding balance for store credit
-      if (refundMethod === 'store_credit' && selectedInvoice.customer_id) {
+      if (isStoreCredit && selectedInvoice.customer_id) {
         const { data: currentCustomer } = await supabase
           .from('customers')
           .select('outstanding_balance')
@@ -574,7 +628,6 @@ function ReturnModal({ invoices, onClose, onSaved }: {
         }
       }
 
-      setCreatedJournalId(journalEntry.id);
       toast({
         title: 'Return Processed Successfully',
         description: `Return ${returnNumber} created. Refund: ${formatCurrency(totalRefundAmount)}`
@@ -593,12 +646,6 @@ function ReturnModal({ invoices, onClose, onSaved }: {
       setSaving(false);
     }
   }
-
-  const refundMethodIcons = {
-    cash: <Banknote className="w-4 h-4" />,
-    bank_transfer: <Building2 className="w-4 h-4" />,
-    store_credit: <Wallet className="w-4 h-4" />
-  };
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -716,24 +763,30 @@ function ReturnModal({ invoices, onClose, onSaved }: {
               {/* Refund Method Selection */}
               <div className="border-t border-border pt-4">
                 <h4 className="text-sm font-medium mb-3">Refund Method:</h4>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['store_credit', 'cash', 'bank_transfer'] as const).map(method => (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {paymentMethods.map(method => (
                     <button
-                      key={method}
+                      key={method.id}
                       type="button"
-                      onClick={() => setRefundMethod(method)}
-                      className={`flex items-center justify-center gap-2 p-3 rounded-lg border transition ${
-                        refundMethod === method
+                      onClick={() => setSelectedPaymentMethod(method.id)}
+                      className={`flex items-center justify-center gap-2 p-3 rounded-lg border transition text-left ${
+                        selectedPaymentMethod === method.id
                           ? 'border-blue-500 bg-blue-50 text-blue-700'
                           : 'border-border hover:border-blue-300'
                       }`}
                     >
-                      {refundMethodIcons[method]}
-                      <span className="text-sm font-medium capitalize">{method.replace('_', ' ')}</span>
+                      {method.is_cash ? (
+                        <Banknote className="w-4 h-4 shrink-0" />
+                      ) : method.is_bank ? (
+                        <Building2 className="w-4 h-4 shrink-0" />
+                      ) : (
+                        <Wallet className="w-4 h-4 shrink-0" />
+                      )}
+                      <span className="text-sm font-medium truncate">{method.name}</span>
                     </button>
                   ))}
                 </div>
-                {refundMethod === 'store_credit' && (
+                {selectedPaymentMethod === 'store_credit' && (
                   <p className="text-xs text-muted-foreground mt-2">
                     Customer will receive store credit that can be used for future purchases.
                   </p>
