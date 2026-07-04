@@ -373,26 +373,55 @@ function TransferModal({ products, warehouses, inventory, getAvailableStock, onC
                   <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-border rounded-xl shadow-xl max-h-52 overflow-y-auto">
                     {(() => {
                       const q = productSearch.toLowerCase();
-                      const filtered = products.filter(p =>
+                      const fromWarehouseId = form.from_warehouse_id;
+                      // If a from_warehouse is selected, show products with stock there first; otherwise show all
+                      const withStock = fromWarehouseId
+                        ? products.filter(p => (inventory.find(i => i.product_id === p.id && i.warehouse_id === fromWarehouseId)?.quantity_on_hand || 0) > 0)
+                        : products;
+                      const filtered = withStock.filter(p =>
                         !q || p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q)
-                      ).slice(0, 30);
-                      if (filtered.length === 0) return (
-                        <div className="px-4 py-3 text-sm text-muted-foreground">No products found for &ldquo;{productSearch}&rdquo;</div>
                       );
-                      return filtered.map(p => (
-                        <button
-                          key={p.id}
-                          type="button"
-                          onClick={() => { setForm({ ...form, product_id: p.id }); setProductSearch(''); setShowProductList(false); }}
-                          className="w-full flex items-start gap-3 px-3 py-2.5 hover:bg-blue-50 text-left border-b border-border/50 last:border-0 transition"
-                        >
-                          <Package className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-foreground truncate">{p.name}</p>
-                            <p className="text-xs text-muted-foreground">{p.sku}{(p as any).category?.name ? ` · ${(p as any).category.name}` : ''}</p>
-                          </div>
-                        </button>
-                      ));
+                      if (filtered.length === 0) {
+                        // Fall back to all products if none found with stock
+                        const fallback = products.filter(p =>
+                          !q || p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q)
+                        );
+                        if (fallback.length === 0) return (
+                          <div className="px-4 py-3 text-sm text-muted-foreground">No products found for &ldquo;{productSearch}&rdquo;</div>
+                        );
+                        return fallback.map(p => (
+                          <button key={p.id} type="button"
+                            onClick={() => { setForm({ ...form, product_id: p.id }); setProductSearch(''); setShowProductList(false); }}
+                            className="w-full flex items-start gap-3 px-3 py-2.5 hover:bg-blue-50 text-left border-b border-border/50 last:border-0 transition"
+                          >
+                            <Package className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-foreground truncate">{p.name}</p>
+                              <p className="text-xs text-muted-foreground">{p.sku}</p>
+                            </div>
+                          </button>
+                        ));
+                      }
+                      return filtered.map(p => {
+                        const stock = fromWarehouseId ? (inventory.find(i => i.product_id === p.id && i.warehouse_id === fromWarehouseId)?.quantity_on_hand || 0) : null;
+                        return (
+                          <button key={p.id} type="button"
+                            onClick={() => { setForm({ ...form, product_id: p.id }); setProductSearch(''); setShowProductList(false); }}
+                            className="w-full flex items-start gap-3 px-3 py-2.5 hover:bg-blue-50 text-left border-b border-border/50 last:border-0 transition"
+                          >
+                            <Package className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-foreground truncate">{p.name}</p>
+                              <p className="text-xs text-muted-foreground">{p.sku}</p>
+                            </div>
+                            {stock !== null && (
+                              <span className={`text-xs font-semibold shrink-0 ${stock > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                                {stock} in stock
+                              </span>
+                            )}
+                          </button>
+                        );
+                      });
                     })()}
                   </div>
                 )}

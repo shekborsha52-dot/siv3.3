@@ -34,19 +34,19 @@ export default function CRMPage() {
   async function loadData() {
     setLoading(true);
     const { data } = await supabase.from('customers').select('*').order('total_purchases', { ascending: false });
-    const { data: returnsData } = await supabase.from('sales_returns').select('customer_id, refund_amount');
+    const { data: returnsData } = await supabase.from('sales_returns').select('customer_id, total_refund_amount');
     setCustomers(data || []);
     const returnsMap: Record<string, { count: number; total: number }> = {};
     (returnsData || []).forEach(r => {
       if (!r.customer_id) return;
       if (!returnsMap[r.customer_id]) returnsMap[r.customer_id] = { count: 0, total: 0 };
       returnsMap[r.customer_id].count++;
-      returnsMap[r.customer_id].total += r.refund_amount || 0;
+      returnsMap[r.customer_id].total += Number(r.total_refund_amount) || 0;
     });
     setCustomerReturns(returnsMap);
     const totalRev = (data || []).reduce((s: number, c: Customer) => s + c.total_purchases, 0);
     const totalOut = (data || []).reduce((s: number, c: Customer) => s + c.outstanding_balance, 0);
-    const totalRef = (returnsData || []).reduce((s: number, r) => s + (r.refund_amount || 0), 0);
+    const totalRef = (returnsData || []).reduce((s: number, r) => s + (Number(r.total_refund_amount) || 0), 0);
     setStats({ total: data?.length || 0, totalRevenue: totalRev, outstanding: totalOut, active: data?.filter((c: Customer) => c.is_active).length || 0, totalRefunds: totalRef });
     setLoading(false);
   }

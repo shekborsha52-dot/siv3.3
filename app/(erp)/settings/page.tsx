@@ -219,9 +219,29 @@ export default function SettingsPage() {
         <p className="text-muted-foreground text-sm mt-0.5">Configure your ERP system preferences</p>
       </div>
 
-      <div className="flex gap-5">
-        <div className="w-48 shrink-0">
-          <nav className="space-y-0.5">
+      {/* Mobile: horizontal scroll tabs | Desktop: sidebar + content */}
+      <div className="lg:flex lg:gap-5">
+        {/* Sidebar (desktop) / Tab bar (mobile) */}
+        <div className="lg:w-48 lg:shrink-0">
+          {/* Mobile horizontal scrollable tabs */}
+          <div className="flex lg:hidden overflow-x-auto gap-1 pb-2 -mx-1 px-1 scrollbar-hide">
+            {tabs.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as SettingsTab)}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm whitespace-nowrap shrink-0 transition font-medium ${
+                  activeTab === tab.id
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white border border-border text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <tab.icon className="w-3.5 h-3.5" />
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          {/* Desktop vertical nav */}
+          <nav className="hidden lg:block space-y-0.5">
             {tabs.map(tab => (
               <button
                 key={tab.id}
@@ -239,7 +259,7 @@ export default function SettingsPage() {
           </nav>
         </div>
 
-        <div className="flex-1 bg-white rounded-xl border border-border shadow-sm">
+        <div className="flex-1 bg-white rounded-xl border border-border shadow-sm mt-3 lg:mt-0">
           {activeTab === 'general' && (
             <div>
               <div className="px-6 py-4 border-b border-border">
@@ -256,7 +276,7 @@ export default function SettingsPage() {
                     <p className="text-xs text-muted-foreground">Construction Materials & Home Improvement</p>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-medium mb-1">Company Name</label>
                     <input
